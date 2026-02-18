@@ -19,9 +19,12 @@ client = OpenAI(api_key=OPENAI_KEY)
 bot.delete_webhook()
 
 # =========================
-# 🧠 ИСТОРИЯ
+# 🎮 ИГРЫ (НОВАЯ СТРУКТУРА)
 # =========================
-history = []
+games = {}
+
+def get_game_key(message):
+    return f"{message.chat.id}:{message.from_user.id}"
 
 # =========================
 # ⌨️ КНОПКИ
@@ -35,7 +38,7 @@ keyboard.add(
 # =========================
 # 📄 ЛОГИ
 # =========================
-def log_user(user_id, name, username, text):
+def log_user(user_id, chat_id, name, username, text):
     try:
         file_exists = os.path.isfile("user_logs.csv")
 
@@ -43,153 +46,69 @@ def log_user(user_id, name, username, text):
             writer = csv.writer(f)
 
             if not file_exists:
-                writer.writerow(["user_id", "name", "username", "message", "time"])
+                writer.writerow([
+                    "user_id", "chat_id", "name",
+                    "username", "message", "time"
+                ])
 
             writer.writerow([
                 user_id,
+                chat_id,
                 name,
                 username,
                 text,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ])
 
-        print("LOG OK")
-
     except Exception as e:
         print("LOG ERROR:", e)
 
-INSTRUCTION = """
-Мы играем в игру "Города".
-
-Пользователь написал город: "{user_city}"
-История использованных городов: {history}
-
-========================
-📌 ПРАВИЛА
-========================
-
-1. Город должен существовать
-2. Город не должен повторяться
-3. Если это НЕ первый ход:
-   - возьми ПОСЛЕДНИЙ город из истории
-   - определи его последнюю букву
-
-========================
-🔤 КАК ОПРЕДЕЛИТЬ БУКВУ
-========================
-
-1. Возьми последний город из истории
-2. Возьми его последнюю букву
-3. Если это одна из букв:
-   ь, ъ, ы, й
-   → возьми предыдущую букву
-
-Пример:
-Киев → в  
-Тверь → р  
-Одесса → а  
-
-========================
-🔎 ПРОВЕРКА
-========================
-
-Сравни:
-- первую букву города пользователя с последней буквой последнего предпоследнего города в истории
-
-------------------------
-
-❌ ЕСЛИ БУКВА НЕ СОВПАДАЕТ:
-
-Верни:
-
-{
- "message_to_user": "Нужно на правильную букву 😏",
- "valid": false,
- "error_type": "wrong_letter",
- "next_city": "",
- "fact": ""
-}
-
-(НЕ вставляй букву в ответ!)
-
-------------------------
-
-🔹 ОПЕЧАТКИ
-
-Если пользователь ошибся в 1-2 буквах:
-- исправь город
-- считай его валидным
-- укажи исправление в corrected_city
-
-------------------------
-
-❌ НЕ СУЩЕСТВУЕТ
-
-{
- "message_to_user": "Я не знаю такого города 😅",
- "valid": false,
- "error_type": "invalid_city",
- "next_city": "",
- "fact": ""
-}
-
-------------------------
-
-❌ ПОВТОР
-
-{
- "message_to_user": "Этот город уже был 😏",
- "valid": false,
- "error_type": "duplicate",
- "next_city": "",
- "fact": ""
-}
-
-------------------------
-
-✅ ЕСЛИ ВСЁ ОК
-
-1. Дай 1 факт про город пользователя
-2. Придумай новый город:
-   - на последнюю букву
-   - которого нет в истории
-3. Дай факт про него
-
-{
- "message_to_user": "Принято! 🔥",
- "valid": true,
- "corrected_city": null,
- "next_city": "...",
- "fact": "...",
- "next_city_fact": "..."
-}
-
-========================
-⚠️ ВАЖНО
-========================
-
-- Отвечай ТОЛЬКО JSON
-- Без текста вне JSON
-"""
+# =========================
+# 🔤 ЛОГИКА БУКВ
+# =========================
+def get_last_letter(city):
+    city = city.lower()
+    for letter in reversed(city):
+        if letter not in ["ь", "ъ", "ы", "й"]:
+            return letter
+    return city[-1]
 
 
+def is_valid_letter(user_city, history):
+    if not history:
+        return True
+
+    last_city = history[-1]
+    required = get_last_letter(last_city)
+    return user_city[0].lower() == required
+
+
+def is_duplicate(city, history):
+    return city.lower() in [c.lower() for c in history]
 
 # =========================
 # 🤖 GPT
 # =========================
-def query_gpt(user_input):
+INSTRUCTION = """
+Мы играем в игру "Города".
+
+История: {history}
+Город пользователя: {user_city}
+
+Ответ строго JSON.
+"""
+
+def query_gpt(user_city, history):
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": INSTRUCTION},
                 {
-                    "role": "user",
-                    "content": f"""
-История: {', '.join(history) if history else "нет"}
-
-Новое слово: {user_input}
-"""
+                    "role": "system",
+                    "content": INSTRUCTION.format(
+                        history=", ".join(history) if history else "нет",
+                        user_city=user_city
+                    )
                 }
             ],
             temperature=0.7
@@ -198,7 +117,11 @@ def query_gpt(user_input):
         raw = response.choices[0].message.content.strip()
         print("GPT RAW:", raw)
 
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except:
+            print("JSON PARSE ERROR:", raw)
+            return None
 
     except Exception as e:
         print("GPT ERROR:", e)
@@ -209,17 +132,12 @@ def query_gpt(user_input):
 # =========================
 @bot.message_handler(commands=['start'])
 def start(message):
-    global history
-    history = []
+    key = get_game_key(message)
 
-    print("START")
-
-    log_user(
-        message.from_user.id,
-        message.from_user.first_name,
-        message.from_user.username,
-        "/start"
-    )
+    games[key] = {
+        "history": [],
+        "processing": False
+    }
 
     bot.reply_to(
         message,
@@ -232,65 +150,91 @@ def start(message):
 # =========================
 @bot.message_handler(func=lambda message: True)
 def handle(message):
-    global history
-
+    key = get_game_key(message)
     text = message.text.strip()
-    print("ПРИШЛО:", text)
 
     log_user(
         message.from_user.id,
+        message.chat.id,
         message.from_user.first_name,
         message.from_user.username,
         text
     )
 
-    # 🔄 reset
-    if text == "🔄 Спробуй заново":
-        history = []
-        bot.reply_to(message, "Починаємо заново!", reply_markup=keyboard)
+    # создаём игру
+    if key not in games:
+        games[key] = {
+            "history": [],
+            "processing": False
+        }
+
+    game = games[key]
+
+    # 🔒 защита от двойных запросов
+    if game["processing"]:
         return
 
-    # 💡 подсказка
-    if text == "💡 Підказка":
-        if history:
-            last = history[-1]
-            bot.reply_to(message, f"На букву: {last[-1].upper()}", reply_markup=keyboard)
-        else:
-            bot.reply_to(message, "Напиши будь-яке місто", reply_markup=keyboard)
-        return
+    game["processing"] = True
 
-    # 🤖 GPT
-    ai_data = query_gpt(text.title())
+    try:
+        history = game["history"]
 
-    if not ai_data:
-        bot.reply_to(message, "Помилка ІІ 😢")
-        return
+        # 🔄 reset
+        if text == "🔄 Спробуй заново":
+            game["history"] = []
+            bot.reply_to(message, "Починаємо заново!", reply_markup=keyboard)
+            return
 
-    # ❌ ошибка
-    if not ai_data.get("valid"):
-        bot.reply_to(message, ai_data.get("message_to_user"), reply_markup=keyboard)
-        return
+        # 💡 подсказка
+        if text == "💡 Підказка":
+            if history:
+                letter = get_last_letter(history[-1])
+                bot.reply_to(message, f"На букву: {letter.upper()}", reply_markup=keyboard)
+            else:
+                bot.reply_to(message, "Напиши будь-яке місто", reply_markup=keyboard)
+            return
 
-    # ✅ сохраняем
-    history.append(text.title())
-    history.append(ai_data["next_city"])
+        user_city = text.title()
 
-    # лог ответа ИИ
-    log_user(
-        message.from_user.id,
-        "BOT",
-        "AI",
-        ai_data["next_city"]
-    )
+        # ❌ проверки
+        if is_duplicate(user_city, history):
+            bot.reply_to(message, "Этот город уже был 😏", reply_markup=keyboard)
+            return
 
-    # ответ
-    bot.reply_to(
-        message,
-        f"{ai_data['message_to_user']}\n\n"
-        f"📚 {ai_data['fact']}\n"
-        f"➡️ {ai_data['next_city']}",
-        reply_markup=keyboard
-    )
+        if not is_valid_letter(user_city, history):
+            bot.reply_to(message, "Нужно на правильную букву 😏", reply_markup=keyboard)
+            return
+
+        # 🤖 GPT
+        ai_data = query_gpt(user_city, history)
+
+        if not ai_data:
+            bot.reply_to(message, "Помилка ІІ 😢")
+            return
+
+        if not ai_data.get("valid"):
+            bot.reply_to(message, ai_data.get("message_to_user"), reply_markup=keyboard)
+            return
+
+        # ✅ атомарное обновление
+        game["history"].extend([
+            user_city,
+            ai_data["next_city"]
+        ])
+
+        # ответ
+        bot.reply_to(
+            message,
+            f"Принято! 🔥\n\n"
+            f"📚 {ai_data['fact']}\n"
+            f"➡️ {ai_data['next_city']}\n"
+            f"📖 {ai_data['next_city_fact']}",
+            reply_markup=keyboard
+        )
+
+    finally:
+        game["processing"] = False
+
 
 # =========================
 # 🚀 ЗАПУСК
