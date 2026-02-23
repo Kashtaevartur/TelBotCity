@@ -9,9 +9,9 @@ import string
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# =========================
+# =======================
 # 🔐 КЛЮЧИ
-# =========================
+# =======================
 TELEGRAM_TOKEN = open("token.txt").read().strip()
 OPENAI_KEY = open("openai_key.txt").read().strip()
 
