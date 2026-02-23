@@ -18,9 +18,9 @@ OPENAI_KEY = open("openai_key.txt").read().strip()
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = OpenAI(api_key=OPENAI_KEY)
 
-# =========================
+# =======================
 # 🎮 СОСТОЯНИЕ
-# =========================
+# =======================
 games = {}
 
 def get_game_key(message):
