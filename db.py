@@ -1,32 +1,60 @@
-import sqlite3
+PROMPTS = {
+    "ru": {
+        "city_check": """
+Ты дружелюбный Telegram-бот.
+Пользователь написал город: "{city}"
 
-# Подключаемся или создаём базу
-conn = sqlite3.connect("cities.db", check_same_thread=False)
-cursor = conn.cursor()
+Проверь:
+1. Существует ли город
+2. Исправь ошибки
+3. Дай короткий факт
 
-# Создаём таблицу истории ходов
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS city_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city TEXT NOT NULL,
-    owner TEXT NOT NULL,  -- 'user' или 'ai'
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-""")
-conn.commit()
+Ответ JSON:
+{{
+  "valid": true,
+  "correct_name": "...",
+  "fact": "..."
+}}
+"""
+    },
 
-# Функция для добавления города
-def add_city(city_name, owner):
-    cursor.execute("INSERT INTO city_history (city, owner) VALUES (?, ?)",
-                   (city_name.title(), owner))
-    conn.commit()
+    "uk": {
+        "city_check": """
+Ти дружній Telegram-бот.
+Користувач написав місто: "{city}"
 
-# Функция для получения всей истории
-def get_history():
-    cursor.execute("SELECT city FROM city_history ORDER BY id")
-    return [row[0] for row in cursor.fetchall()]
+Перевір:
+1. Чи існує місто
+2. Виправ помилки
+3. Дай короткий факт
 
-# Сброс истории (новая игра)
-def reset_history():
-    cursor.execute("DELETE FROM city_history")
-    conn.commit()
+Відповідь JSON:
+{{
+  "valid": true,
+  "correct_name": "...",
+  "fact": "..."
+}}
+"""
+    },
+
+    "en": {
+        "city_check": """
+You are a friendly Telegram bot.
+User entered city: "{city}"
+
+Check:
+1. Does city exist
+2. Fix spelling
+3. Give short fact
+
+Return JSON:
+{{
+  "valid": true,
+  "correct_name": "...",
+  "fact": "..."
+}}
+"""
+    }
+}
+lang = "uk"
+print(PROMPTS[lang]["city_check"])
